@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Lib (searchReadEndDistance, mergeReads)
+import Lib (findInsertLength, mergeReads)
 
 import Codec.Compression.GZip (compress)
 import Control.Monad (void, when)
@@ -42,16 +42,17 @@ main = execParser (info parser (fullDesc <> progDesc "merge paired sequencing re
 
 runWithOptions :: MyOptions -> IO ()
 runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr read1FN read2FN) = runManaged $ do
-    read1H <- managed $ withFile read1FN ReadMode
-    read2H <- managed $ withFile read2FN ReadMode
-    outR1H <- managed $ withFile (outPrefix ++ "_1.fastq.gz") WriteMode
-    outR2H <- managed $ withFile (outPrefix ++ "_2.fastq.gz") WriteMode
+    read1H     <- managed $ withFile read1FN                           ReadMode
+    read2H     <- managed $ withFile read2FN                           ReadMode
+    outR1H     <- managed $ withFile (outPrefix ++ "_1.fastq.gz")      WriteMode
+    outR2H     <- managed $ withFile (outPrefix ++ "_2.fastq.gz")      WriteMode
     outMergedH <- managed $ withFile (outPrefix ++ "_merged.fastq.gz") WriteMode
-    let read1Stream = parsed fastqParser . decompress $ PB.fromHandle read1H
-        read2Stream = parsed fastqParser . decompress $ PB.fromHandle read2H
+    let read1Stream    = parsed fastqParser . decompress $ PB.fromHandle read1H
+        read2Stream    = parsed fastqParser . decompress $ PB.fromHandle read2H
         combinedStream = P.zip read1Stream read2Stream
     statsRef <- liftIO . newIORef $ (0, 0)
-    res <- runEffect $ for combinedStream (processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H outMergedH)
+    res <- runEffect $ for combinedStream (processFastq statsRef minLength mismatchRate minOverlapSize maxNr
+                                           outR1H outR2H outMergedH)
     case res of
         Left (err, restProd) -> do
             liftIO $ hPutStrLn stderr ("Parsing error: " ++ show err)
@@ -80,16 +81,12 @@ processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H 
     else do
         when (nrReads `mod` 10000 == 0) $ (liftIO . hPutStrLn stderr) ("processing read " ++ show nrReads)
         let (FastqEntry header1 seq1 qual1, FastqEntry header2 seq2 qual2) = fqEntries
-            readEndDistance = searchReadEndDistance seq1 seq2 mismatchRate minOverlapSize
-        case readEndDistance of
-            Just dist -> do
-                let (mergedSeq, mergedQual) = mergeReads seq1 qual1 seq2 qual2 dist
-                if (B8.length mergedSeq >= minLength) then do
-                    liftIO $ modifyIORef statsRef (\(r, m) -> (r, m + 1))
-                    liftIO . writeFQ outMergedH $ FastqEntry header1 mergedSeq mergedQual
-                else do
-                    liftIO . writeFQ outR1H $ FastqEntry header1 seq1 qual1
-                    liftIO . writeFQ outR2H $ FastqEntry header2 seq2 qual2
+            insertLength = findInsertLength seq1 seq2 mismatchRate minOverlapSize minLength
+        case insertLength of
+            Just l -> do
+                let (mergedSeq, mergedQual) = mergeReads seq1 qual1 seq2 qual2 l
+                liftIO $ modifyIORef statsRef (\(r, m) -> (r, m + 1))
+                liftIO . writeFQ outMergedH $ FastqEntry header1 mergedSeq mergedQual
             Nothing -> do
                 liftIO . writeFQ outR1H $ FastqEntry header1 seq1 qual1
                 liftIO . writeFQ outR2H $ FastqEntry header2 seq2 qual2
