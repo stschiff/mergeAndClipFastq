@@ -20,10 +20,10 @@ findInsertLength seq1 seq2 mismatchRate minOverlapSize minLength =
         testLengths = [minLength..(l1 + l2 - minOverlapSize)]
         matchOverlap i =
             let (o1, o2) = if i <= l1 then
-                               (B.take i seq1, revComp . B.take i $ seq2)
+                               (B.take i seq1, B.take i $ seq2)
                            else
-                               (B.drop (i - l2) seq1, revComp . B.drop (i - l1) $ seq2)
-            in  seqMatch o1 o2 mismatchRate
+                               (B.drop (i - l2) seq1, B.drop (i - l1) $ seq2)
+            in  seqMatch o1 o2 mismatchRate True
         matchResults = dropWhile (not . snd) . zip testLengths . map matchOverlap $ testLengths
     in  case matchResults of
         [] -> Nothing
@@ -85,11 +85,23 @@ qualToChar = chr . (+33)
 charToQual :: Char -> Int
 charToQual c = ord c - 33
 
-seqMatch :: B.ByteString -> B.ByteString -> Double -> Bool
-seqMatch seq1 seq2 mismatchRate = 
-    if B.length seq1 /= B.length seq2 then error "sequence lengths do not match" else
-        let s = sum $ B.zipWith nucDiff seq1 seq2
-        in  s / (fromIntegral $ B.length seq1) <= mismatchRate
+seqMatch :: B.ByteString -> B.ByteString -> Double -> Bool -> Bool
+seqMatch seq1 seq2 mismatchRate seq2AsRevComp = go 0 0
   where
-    nucDiff a b = if a == 'N' || b == 'N' || (a == b) then 0 else 1
-
+    go index misMatches =
+        if index >= B.length seq1 then True else
+            let newMisMatches = misMatches +
+                    if seq2AsRevComp then
+                        let s1 = B.index seq1 index
+                            s2 = B.index seq2 (B.length seq2 - index - 1)
+                        in  if s1 == 'N' || s2 == 'N' || revCompEqual s1 s2 then 0 else 1
+                    else
+                        let s1 = B.index seq1 index
+                            s2 = B.index seq2 index
+                        in  if s1 == 'N' || s2 == 'N' || s1 == s2 then 0 else 1
+            in  if newMisMatches / (fromIntegral $ B.length seq1) <= mismatchRate then
+                    go (index + 1) newMisMatches
+                else
+                    False
+    revCompEqual s1 s2 = (s1 == 'A' && s2 == 'T') || (s1 == 'T' && s2 == 'A') ||
+                         (s1 == 'C' && s2 == 'G') || (s1 == 'G' && s2 == 'C')

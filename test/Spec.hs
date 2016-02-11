@@ -43,5 +43,5 @@ assertCorrectMergeReads = do
 
 testSeqMatch :: Assertion
 testSeqMatch = do
-    assertEqual "seqMatch" False (seqMatch "AACCT" "ACCCT" 0.05)
-    assertEqual "seqMatch" True  (seqMatch "AACCT" "ACCCT" 0.3)
+    assertEqual "seqMatch" False (seqMatch "AACCT" "ACCCT" 0.05 False)
+    assertEqual "seqMatch" True  (seqMatch "AACCT" "ACCCT" 0.3 False)
