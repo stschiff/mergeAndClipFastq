@@ -22,11 +22,11 @@ assertCorrectRevComp = do
 
 checkFindInsertLength :: Assertion
 checkFindInsertLength = do
-    assertEqual "searchReadEndDist" (Just 6)  (findInsertLength "ACCTGCCTGC" "GCAGGTAATC" 0.01 4 5)
-    assertEqual "searchReadEndDist" (Just 8)  (findInsertLength "ACCTGCCTGC" "AGCCAGGTCC" 0.01 4 5)
-    assertEqual "searchReadEndDist" (Just 10) (findInsertLength "ACCTGCCTGC" "GCAGGCTGGT" 0.01 8 5)
-    assertEqual "searchReadEndDist" (Just 13) (findInsertLength "ACCTGCCTGC" "TTTGCAGGCT" 0.01 4 5)
-    assertEqual "searchReadEndDist" Nothing   (findInsertLength "ACCTGCCTGC" "TTGGTTGGCC" 0.01 4 5)
+    assertEqual "searchReadEndDist" (Just 6)  (findInsertLength "ACCTGCCTGC" "GCAGGTAATC" 0.0 4 5)
+    assertEqual "searchReadEndDist" (Just 8)  (findInsertLength "ACCTGCCTGC" "AGGCAGGTCC" 0.0 4 5)
+    assertEqual "searchReadEndDist" (Just 10) (findInsertLength "ACCTGCCTGC" "GCAGGCAGGT" 0.0 8 5)
+    assertEqual "searchReadEndDist" (Just 13) (findInsertLength "ACCTGCCTGC" "TTTGCAGGCA" 0.0 4 5)
+    assertEqual "searchReadEndDist" Nothing   (findInsertLength "ACCTGCCTGC" "TTGGTTGGCC" 0.0 4 5)
 
 assertCorrectMergeReads :: Assertion
 assertCorrectMergeReads = do
@@ -36,7 +36,7 @@ assertCorrectMergeReads = do
         qual2 = replicate 10 30
         (mergedSeq, mergedQual) = mergeReads seq1 (qualToText qual1) seq2 (qualToText qual2) 6
     assertEqual "mergedSeq" "ACCTGC" mergedSeq
-    assertEqual "mergedQual" [40, 40, 30, 40, 40, 40] (textToQual mergedQual)
+    assertEqual "mergedQual" [40, 40, 40, 1, 40, 40] (textToQual mergedQual)
   where
     qualToText = B.pack . map qualToChar
     textToQual = map charToQual . B.unpack
