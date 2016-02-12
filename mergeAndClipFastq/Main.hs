@@ -57,35 +57,44 @@ main = do
                                       \.gz file ending)")       
 
 runWithOptions :: MyOptions -> IO ()
-runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr read1FN read2FN) = runManaged $ do
-    read1H     <- managed $ withFile read1FN                           ReadMode
-    read2H     <- managed $ withFile read2FN                           ReadMode
-    outR1H     <- managed $ withFile (outPrefix ++ "_1.fastq.gz")      WriteMode
-    outR2H     <- managed $ withFile (outPrefix ++ "_2.fastq.gz")      WriteMode
-    outMergedH <- managed $ withFile (outPrefix ++ "_merged.fastq.gz") WriteMode
-    let read1Stream    = parsed fastqParser . decompress $ PB.fromHandle read1H
-        read2Stream    = parsed fastqParser . decompress $ PB.fromHandle read2H
-        combinedStream = P.zip read1Stream read2Stream
-    statsRef <- liftIO . newIORef $ (0, 0)
-    let proc = processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H 
-                            outMergedH
-    case maxNr of
-        Just m -> do
-            runEffect $ for (void combinedStream >-> P.take m) proc
-            (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
-            liftIO . putStrLn $ "Total Reads processed: " ++ show nrReads
-            liftIO . putStrLn $ "Merged Reads: " ++ show nrMerged
-        Nothing -> do
-            res <- runEffect $ for combinedStream proc
-            case res of
-                Left (err, restProd) -> do
-                    liftIO $ hPutStrLn stderr ("Parsing error: " ++ show err)
-                    Right (chunk, _) <- next restProd
-                    liftIO $ hPutStrLn stderr (B8.unpack chunk)
-                Right _ -> do
-                    (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
-                    liftIO . putStrLn $ "Total Reads processed: " ++ show nrReads
-                    liftIO . putStrLn $ "Merged Reads: " ++ show nrMerged
+runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr read1FN read2FN) = 
+    runManaged $ do
+        read1H     <- managed $ withFile read1FN                           ReadMode
+        read2H     <- managed $ withFile read2FN                           ReadMode
+        outR1H     <- managed $ withFile (outPrefix ++ "_1.fastq.gz")      WriteMode
+        outR2H     <- managed $ withFile (outPrefix ++ "_2.fastq.gz")      WriteMode
+        outMergedH <- managed $ withFile (outPrefix ++ "_merged.fastq.gz") WriteMode
+        let read1Stream    = parsed fastqParser . decompress $ PB.fromHandle read1H
+            read2Stream    = parsed fastqParser . decompress $ PB.fromHandle read2H
+            combinedStream = P.zip read1Stream read2Stream
+        -- res <- runEffect $ for combinedStream (liftIO . print)
+        -- case res of
+        --     Left (err, restProd) -> do
+        --         liftIO . print $ err
+        --         Right (chunk, _) <- next restProd
+        --         liftIO . print $ chunk
+        --     Right r -> liftIO . print $ r
+
+        statsRef <- liftIO . newIORef $ (0, 0)
+        let proc = processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H
+                                outMergedH
+        case maxNr of
+            Just m -> do
+                runEffect $ for (void combinedStream >-> P.take m) proc
+                (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
+                liftIO . putStrLn $ "Total Reads processed: " ++ show nrReads
+                liftIO . putStrLn $ "Merged Reads: " ++ show nrMerged
+            Nothing -> do
+                res <- runEffect $ for combinedStream proc
+                case res of
+                    Left (err, restProd) -> do
+                        liftIO $ hPutStrLn stderr ("Parsing error: " ++ show err)
+                        Right (chunk, _) <- next restProd
+                        liftIO $ hPutStrLn stderr (B8.unpack chunk)
+                    Right _ -> do
+                        (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
+                        liftIO . putStrLn $ "Total Reads processed: " ++ show nrReads
+                        liftIO . putStrLn $ "Merged Reads: " ++ show nrMerged
 
 fastqParser :: A.Parser FastqEntry
 fastqParser = FastqEntry <$> line <* A.endOfLine <*> seq_ <* A.endOfLine <* A.char '+' <* 
