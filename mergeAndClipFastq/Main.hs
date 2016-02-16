@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, BangPatterns #-}
 
 import Lib (findInsertLength, mergeReads)
 
@@ -14,6 +14,7 @@ import Options.Applicative (execParser, info, fullDesc, progDesc, auto, strOptio
 import qualified Pipes.ByteString as PB
 import Pipes (runEffect, (>->), for, liftIO, Effect, next)
 import Pipes.Attoparsec (parsed)
+-- import qualified Pipes.GZip as PG
 import qualified Pipes.Prelude as P
 import System.IO (withFile, IOMode(..), stderr, hPutStrLn, Handle)
 
@@ -66,30 +67,25 @@ runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr 
         read2raw <- decompress <$> liftIO (BL8.hGetContents read2H)
         let read1Stream    = parsed fastqParser . PB.fromLazy $ read1raw
             read2Stream    = parsed fastqParser . PB.fromLazy $ read2raw
+        -- let read1Stream = parsed fastqParser . PG.decompress . PB.fromHandle $ read1H
+        --     read2Stream = parsed fastqParser . PG.decompress . PB.fromHandle $ read2H
             combinedStream = P.zip read1Stream read2Stream
-        -- res <- runEffect $ for combinedStream (liftIO . print)
-        -- case res of
-        --     Left (err, restProd) -> do
-        --         liftIO . print $ err
-        --         Right (chunk, _) <- next restProd
-        --         liftIO . print $ chunk
-        --     Right r -> liftIO . print $ r
 
         statsRef <- liftIO . newIORef $ (0, 0)
-        let proc = processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H 
+        let proc = processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H
                                 outMergedH
         case maxNr of
             Just m -> do
-                runEffect $ for (void combinedStream >-> P.take m) proc
+                liftIO . runEffect $ for (void combinedStream >-> P.take m) proc
                 (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
                 liftIO . putStrLn $ "Total Reads processed: " ++ show nrReads
                 liftIO . putStrLn $ "Merged Reads: " ++ show nrMerged
             Nothing -> do
-                res <- runEffect $ for combinedStream proc
+                res <- liftIO . runEffect $ for combinedStream proc
                 case res of
                     Left (err, restProd) -> do
                         liftIO $ hPutStrLn stderr ("Parsing error: " ++ show err)
-                        Right (chunk, _) <- next restProd
+                        Right (chunk, _) <- liftIO $ next restProd
                         liftIO $ hPutStrLn stderr (B8.unpack chunk)
                     Right _ -> do
                         (nrReads, nrMerged) <- liftIO . readIORef $ statsRef
@@ -105,9 +101,9 @@ fastqParser = FastqEntry <$> line <* A.endOfLine <*> seq_ <* A.endOfLine <* A.ch
     
 processFastq :: (MonadIO m) => IORef (Int, Int) -> Int -> Double -> Int -> Handle ->
                                Handle -> Handle -> (FastqEntry, FastqEntry) -> Effect m ()
-processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H outMergedH 
+processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H outMergedH
              fqEntries = do
-    liftIO $ modifyIORef statsRef (\(r, m) -> (r + 1, m))
+    liftIO $ modifyIORef statsRef (\(!r, m) -> (r + 1, m))
     (nrReads, _) <- liftIO $ readIORef statsRef
     when (nrReads `mod` 10000 == 0) $
         (liftIO . hPutStrLn stderr) ("processing read " ++ show nrReads)
@@ -116,7 +112,7 @@ processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H outMer
     case insertLength of
         Just l -> do
             let (mergedSeq, mergedQual) = mergeReads seq1 qual1 seq2 qual2 l
-            liftIO $ modifyIORef statsRef (\(r, m) -> (r, m + 1))
+            liftIO $ modifyIORef statsRef (\(r, !m) -> (r, m + 1))
             liftIO . writeFQ outMergedH $ FastqEntry header1 mergedSeq mergedQual
         Nothing -> do
             liftIO . writeFQ outR1H $ FastqEntry header1 seq1 qual1
