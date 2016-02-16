@@ -11,7 +11,6 @@ module Lib
 
 import qualified Data.ByteString.Char8 as B
 import Data.Char (ord, chr)
-import Data.List (dropWhile)
 
 findInsertLength :: B.ByteString -> B.ByteString -> Double -> Int -> Int -> Maybe Int
 findInsertLength seq1 seq2 mismatchRate minOverlapSize minLength =

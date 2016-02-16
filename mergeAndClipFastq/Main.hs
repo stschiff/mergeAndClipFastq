@@ -2,13 +2,11 @@
 
 import Lib (findInsertLength, mergeReads)
 
-import Codec.Compression.GZip (compress)
+import Codec.Compression.GZip (compress, decompress)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Managed (runManaged, managed)
-import Control.Monad.Trans.Class (lift)
 import qualified Data.Attoparsec.ByteString.Char8 as A
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
@@ -16,7 +14,6 @@ import Options.Applicative (execParser, info, fullDesc, progDesc, auto, strOptio
 import qualified Pipes.ByteString as PB
 import Pipes (runEffect, (>->), for, liftIO, Effect, next)
 import Pipes.Attoparsec (parsed)
-import Pipes.GZip (decompress)
 import qualified Pipes.Prelude as P
 import System.IO (withFile, IOMode(..), stderr, hPutStrLn, Handle)
 
@@ -64,8 +61,11 @@ runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr 
         outR1H     <- managed $ withFile (outPrefix ++ "_1.fastq.gz")      WriteMode
         outR2H     <- managed $ withFile (outPrefix ++ "_2.fastq.gz")      WriteMode
         outMergedH <- managed $ withFile (outPrefix ++ "_merged.fastq.gz") WriteMode
-        let read1Stream    = parsed fastqParser . decompress $ PB.fromHandle read1H
-            read2Stream    = parsed fastqParser . decompress $ PB.fromHandle read2H
+
+        read1raw <- decompress <$> liftIO (BL8.hGetContents read1H)
+        read2raw <- decompress <$> liftIO (BL8.hGetContents read2H)
+        let read1Stream    = parsed fastqParser . PB.fromLazy $ read1raw
+            read2Stream    = parsed fastqParser . PB.fromLazy $ read2raw
             combinedStream = P.zip read1Stream read2Stream
         -- res <- runEffect $ for combinedStream (liftIO . print)
         -- case res of
@@ -76,7 +76,7 @@ runWithOptions (MyOptions outPrefix minLength mismatchRate minOverlapSize maxNr 
         --     Right r -> liftIO . print $ r
 
         statsRef <- liftIO . newIORef $ (0, 0)
-        let proc = processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H
+        let proc = processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H 
                                 outMergedH
         case maxNr of
             Just m -> do
@@ -103,12 +103,12 @@ fastqParser = FastqEntry <$> line <* A.endOfLine <*> seq_ <* A.endOfLine <* A.ch
     line = A.takeTill (\c -> c == '\n' || c == '\r')
     seq_ = A.takeWhile1 (\c -> c == 'A' || c == 'C' || c == 'G' || c == 'T' || c == 'N')
     
-processFastq :: (MonadIO m) => IORef (Int, Int) -> Int -> Double -> Int -> Maybe Int -> Handle ->
+processFastq :: (MonadIO m) => IORef (Int, Int) -> Int -> Double -> Int -> Handle ->
                                Handle -> Handle -> (FastqEntry, FastqEntry) -> Effect m ()
-processFastq statsRef minLength mismatchRate minOverlapSize maxNr outR1H outR2H outMergedH 
+processFastq statsRef minLength mismatchRate minOverlapSize outR1H outR2H outMergedH 
              fqEntries = do
     liftIO $ modifyIORef statsRef (\(r, m) -> (r + 1, m))
-    (nrReads, nrMerged) <- liftIO $ readIORef statsRef
+    (nrReads, _) <- liftIO $ readIORef statsRef
     when (nrReads `mod` 10000 == 0) $
         (liftIO . hPutStrLn stderr) ("processing read " ++ show nrReads)
     let (FastqEntry header1 seq1 qual1, FastqEntry header2 seq2 qual2) = fqEntries
