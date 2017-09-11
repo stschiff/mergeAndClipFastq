@@ -10,7 +10,7 @@ import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
-import Options.Applicative (execParser, info, fullDesc, progDesc, auto, strOption, value, option, long, short, metavar, help, showDefault, (<>))
+import Options.Applicative (execParser, info, fullDesc, progDesc, auto, strOption, value, option, long, short, metavar, help, showDefault, (<>), helper)
 import qualified Pipes.ByteString as PB
 import Pipes (runEffect, (>->), for, liftIO, Effect, next)
 import Pipes.Attoparsec (parsed)
@@ -23,7 +23,7 @@ data FastqEntry = FastqEntry B8.ByteString B8.ByteString B8.ByteString deriving 
 
 main :: IO ()
 main = do
-    opts <- execParser (info parser (fullDesc <> progDesc "merge paired sequencing reads and clip \
+    opts <- execParser (info (helper <*> parser) (fullDesc <> progDesc "merge paired sequencing reads and clip \
                                      \any adapter sequence left or right of the merged fragment.")) 
     runWithOptions opts
   where
